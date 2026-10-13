@@ -1,0 +1,66 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'URL сайта'
+        required: true
+      release_tag:
+        description: 'Тег релиза'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-
+
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf \
+            libtool pkg-config zlib1g-dev libncurses5-dev cmake \
+            libffi-dev libssl-dev
+          pip install buildozer cython virtualenv
+
+      - name: Inject URL
+        run: |
+          sed -i "s|SITE_URL_PLACEHOLDER|${{ github.event.inputs.site_url }}|" main.py
+
+      - name: Build APK
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: android debug
+          workdir: .
+
+      - name: Prepare APK
+        run: |
+          APK=$(ls bin/*.apk | head -n1)
+          cp "$APK" app.apk
+          echo "Готово: $APK"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: APK ${{ github.event.inputs.release_tag }}
+          files: app.apk
+          draft: false
+          prerelease: false
