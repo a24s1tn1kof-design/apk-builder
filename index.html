@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APK Builder</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    margin: 0;
+  }
+  .container {
+    background: #2a2a3e;
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    border: 1px solid #3d3d5c;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    background: linear-gradient(90deg, #7c3aed, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: #8888a8; font-size: 13px; margin-bottom: 24px; }
+  label { display: block; font-size: 13px; color: #a0a0c0; margin-bottom: 6px; }
+  input {
+    width: 100%;
+    padding: 12px 14px;
+    background: #1e1e2e;
+    border: 1px solid #3d3d5c;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 14px;
+    margin-bottom: 14px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  input:focus { border-color: #7c3aed; }
+  button {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(90deg, #7c3aed, #06b6d4);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  button:hover:not(:disabled) { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .log {
+    margin-top: 16px;
+    padding: 12px;
+    background: #1a1a28;
+    border-radius: 8px;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    color: #a0a0c0;
+    max-height: 240px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: none;
+  }
+  .log.visible { display: block; }
+  .log .ok { color: #4ade80; }
+  .log .err { color: #f87171; }
+  .log .info { color: #60a5fa; }
+  .dl {
+    display: none;
+    margin-top: 16px;
+    padding: 16px;
+    background: linear-gradient(90deg, #16a34a, #22c55e);
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+    color: #fff;
+    text-decoration: none;
+  }
+  .dl.visible { display: block; }
+  .progress {
+    margin-top: 12px;
+    height: 6px;
+    background: #1e1e2e;
+    border-radius: 3px;
+    overflow: hidden;
+    display: none;
+  }
+  .progress.visible { display: block; }
+  .progress > div {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #7c3aed, #06b6d4);
+    transition: width .4s;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔨 APK Builder</h1>
+  <div class="subtitle">Вставь URL — получи готовый APK</div>
+
+  <label for="url">URL сайта</label>
+  <input id="url" type="url" placeholder="https://example.com" />
+
+  <button id="buildBtn">🚀 Собрать APK</button>
+
+  <div id="progress" class="progress"><div id="progressBar"></div></div>
+  <div id="log" class="log"></div>
+  <a id="download" class="dl" href="#" download>⬇️ Скачать APK</a>
+</div>
+
+<script>
+// ⚠️ ЗАМЕНИ ПОСЛЕ ДЕПЛОЯ ВОРКЕРА (шаг 10)
+const API_BASE = 'https://apk-builder.ТВОЙ_СУБДОМЕН.workers.dev';
+
+const $ = id => document.getElementById(id);
+const log = $('log');
+const progress = $('progress');
+const progressBar = $('progressBar');
+
+function print(msg, cls = '') {
+  log.classList.add('visible');
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = msg + '\n';
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function startBuild() {
+  const url = $('url').value.trim();
+  log.innerHTML = '';
+  $('download').classList.remove('visible');
+  progress.classList.remove('visible');
+
+  if (!url) return print('❌ Введите URL', 'err');
+
+  $('buildBtn').disabled = true;
+  progress.classList.add('visible');
+  progressBar.style.width = '5%';
+
+  try {
+    print('▶ Отправляю URL на сервер...', 'info');
+    const res = await fetch(`${API_BASE}/build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { job_id } = await res.json();
+    print(`✓ Задача создана: ${job_id.slice(0,8)}...`, 'ok');
+
+    let attempt = 0;
+    while (true) {
+      await new Promise(r => setTimeout(r, 5000));
+      attempt++;
+
+      const s = await fetch(`${API_BASE}/status/${job_id}`);
+      const data = await s.json();
+
+      const pct = Math.min(5 + attempt * 2, 95);
+      progressBar.style.width = pct + '%';
+
+      if (data.status === 'success') {
+        progressBar.style.width = '100%';
+        print('🎉 Сборка успешна!', 'ok');
+        const a = $('download');
+        a.href = `${API_BASE}/download/${job_id}`;
+        a.classList.add('visible');
+        print('⬇️ Нажми зелёную кнопку ниже', 'info');
+        break;
+      }
+      if (data.status === 'failed') {
+        print(`❌ Ошибка: ${data.message || 'см. лог Actions'}`, 'err');
+        break;
+      }
+      print(`  ...собирается (${attempt * 5} сек)`);
+    }
+  } catch (e) {
+    print(`❌ ${e.message}`, 'err');
+  } finally {
+    $('buildBtn').disabled = false;
+  }
+}
+
+$('buildBtn').addEventListener('click', startBuild);
+</script>
+</body>
+</html>
